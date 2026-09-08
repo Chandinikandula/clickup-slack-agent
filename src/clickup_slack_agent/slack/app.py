@@ -192,6 +192,11 @@ def _describe(call: ToolCall, preamble: str) -> str:
 
 
 def start_socket_mode(app: App, settings: Settings) -> SocketModeHandler:
+    if not settings.slack_app_token:
+        raise RuntimeError(
+            "SLACK_APP_TOKEN is required to listen for messages. "
+            "Generate one under Basic Information → App-Level Tokens."
+        )
     handler = SocketModeHandler(app, settings.slack_app_token)
     log.info("connecting to Slack over Socket Mode")
     handler.start()  # blocks

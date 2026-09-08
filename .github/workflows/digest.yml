@@ -1,0 +1,45 @@
+name: Morning digest
+
+# The digest is a ten-second job, so it needs a scheduler rather than a
+# server. This runs it on GitHub's machines — no always-on host, and it
+# fires whether or not a laptop is awake.
+#
+# The chat agent is a different matter: it must be listening when you type,
+# so it still needs a long-running process.
+
+on:
+  schedule:
+    # 04:00 UTC = 09:30 Asia/Kolkata. GitHub's cron is UTC only, and under
+    # load it can fire up to ~15 minutes late — fine for a morning brief.
+    - cron: "0 4 * * 1-5" # weekdays only
+  workflow_dispatch: # run it by hand from the Actions tab
+
+concurrency:
+  group: morning-digest
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: Send digest
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_USER_ID: ${{ secrets.SLACK_USER_ID }}
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          CLICKUP_TEAM_ID: ${{ secrets.CLICKUP_TEAM_ID }}
+          CLICKUP_USER_ID: ${{ secrets.CLICKUP_USER_ID }}
+          CLICKUP_EXCLUDE_LIST_IDS: ${{ secrets.CLICKUP_EXCLUDE_LIST_IDS }}
+          # No SLACK_APP_TOKEN and no model key: a one-shot digest needs
+          # neither Socket Mode nor an LLM.
+          TIMEZONE: Asia/Kolkata
+        run: uv run python scripts/send_digest_now.py

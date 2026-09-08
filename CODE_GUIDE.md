@@ -73,10 +73,28 @@ layer only — the digest path never touches `agent`.
 
 ### 2. The digest — no model involved
 
-09:30 IST arrives. APScheduler's thread fires:
+Two different things can start this, and they converge immediately:
 
 ```
-CronTrigger fires
+APScheduler's thread, 09:30 IST          GitHub Actions cron, 04:00 UTC
+(only while the app is running)          (.github/workflows/digest.yml)
+        │                                        │
+        │                                scripts/send_digest_now.py
+        │                                └── get_settings()
+        │                                └── ClickUpClient(...) / WebClient(...)
+        └────────────────┬───────────────────────┘
+                         ▼
+              send_digest(clickup, slack, settings)
+```
+
+The scheduled Action is why `SLACK_APP_TOKEN` is optional and why
+`send_digest` returns a bool: a one-shot run needs no Socket Mode and no
+model, and the script exits non-zero on failure so a broken digest shows as
+a red run rather than as silence.
+
+From there both paths are identical:
+
+```
 └── send_digest(clickup, slack, settings)              digest/service.py
     ├── collect_digest(clickup, settings)
     │   ├── datetime.now(ZoneInfo("Asia/Kolkata"))     "now" in YOUR timezone
@@ -285,7 +303,7 @@ class Status(BaseModel):
 
     @property
     def is_terminal(self) -> bool:
-        return self.type in TERMINAL_TYPES   # {"done", "closed"}
+        return self.type in TERMINAL_TYPES  # {"done", "closed"}
 ```
 
 `is_terminal` is the single place the app decides whether work is finished,
@@ -300,7 +318,7 @@ class Priority(IntEnum):
     HIGH = 2
     NORMAL = 3
     LOW = 4
-    NONE = 5     # absent priority sorts last, not first
+    NONE = 5  # absent priority sorts last, not first
 ```
 
 ## `clickup/client.py`
@@ -495,8 +513,8 @@ registering it in `providers/__init__.py`. Nothing else changes.
 Three pieces of state, all deliberate:
 
 ```python
-conversations = Conversations()          # in-memory, last 8 turns per channel
-seen: OrderedDict[str, None] = OrderedDict()   # event ids, capped at 500
+conversations = Conversations()  # in-memory, last 8 turns per channel
+seen: OrderedDict[str, None] = OrderedDict()  # event ids, capped at 500
 ```
 
 Slack redelivers any event not acked within three seconds, and an agent turn
@@ -545,20 +563,22 @@ answer.
 One entry in `ToolRegistry._build()`:
 
 ```python
-Tool(
-    ToolSpec(
-        name="get_task_time_tracked",
-        description="How much time has been logged against a task. Use this "
-                    "when the user asks how long something has taken.",
-        parameters={
-            "type": "object",
-            "properties": {"task_id": {"type": "string"}},
-            "required": ["task_id"],
-        },
+(
+    Tool(
+        ToolSpec(
+            name="get_task_time_tracked",
+            description="How much time has been logged against a task. Use this "
+            "when the user asks how long something has taken.",
+            parameters={
+                "type": "object",
+                "properties": {"task_id": {"type": "string"}},
+                "required": ["task_id"],
+            },
+        ),
+        self._get_task_time_tracked,
+        is_write=False,
     ),
-    self._get_task_time_tracked,
-    is_write=False,
-),
+)
 ```
 
 Plus the handler method, and a client method if ClickUp needs a new call.

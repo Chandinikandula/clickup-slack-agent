@@ -92,15 +92,32 @@ uv run python evals/run.py --provider anthropic --model claude-sonnet-5
 A full run costs roughly 90 model requests — check your provider's quota
 first, and use `--delay` to stay inside a free tier's per-minute limit.
 
-## Deploying
+## Where it runs
 
-```bash
-fly launch --no-deploy
-fly secrets set SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... SLACK_USER_ID=... \
-               CLICKUP_API_TOKEN=... CLICKUP_TEAM_ID=... CLICKUP_USER_ID=... \
-               GEMINI_API_KEY=...
-fly deploy
+The two layers need different hosting, so they get it.
+
+**The digest** runs as a GitHub Actions cron — `.github/workflows/digest.yml`,
+04:00 UTC weekdays, which is 09:30 in Kolkata. No server, nothing to keep
+alive, and it fires whether or not your laptop is awake. Set these as
+repository secrets:
+
+```
+SLACK_BOT_TOKEN  SLACK_USER_ID  CLICKUP_API_TOKEN
+CLICKUP_TEAM_ID  CLICKUP_USER_ID  CLICKUP_EXCLUDE_LIST_IDS
 ```
 
-One container, no inbound port — Socket Mode dials out to Slack. CI deploys
-on merge to `main` once `FLY_API_TOKEN` is set as a repository secret.
+Neither `SLACK_APP_TOKEN` nor a model key is needed — a one-shot digest uses
+no Socket Mode and no LLM. Trigger it by hand from the Actions tab to test.
+
+**The chat agent** has to be listening when you type, so it needs a
+long-running process. Locally that's `python -m clickup_slack_agent`. To host
+it:
+
+```bash
+fly launch --no-deploy --copy-config
+grep -E '^[A-Z_]+=.+' .env | fly secrets import
+fly deploy && fly scale count 1
+```
+
+`fly scale count 1` matters: two machines means two Socket Mode connections,
+so every DM gets answered twice.

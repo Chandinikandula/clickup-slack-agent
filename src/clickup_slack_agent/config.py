@@ -16,8 +16,10 @@ class Settings(BaseSettings):
 
     # Slack
     slack_bot_token: str
-    slack_app_token: str
     slack_user_id: str
+    # Only Socket Mode needs this, so a one-shot digest run — the scheduled
+    # GitHub Action, say — can work without it.
+    slack_app_token: str = ""
 
     # ClickUp
     clickup_api_token: str
