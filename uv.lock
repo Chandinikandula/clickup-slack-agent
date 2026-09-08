@@ -326,6 +326,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "slack-bolt" },
+    { name = "tzdata" },
 ]
 
 [package.optional-dependencies]
@@ -349,6 +350,7 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "slack-bolt", specifier = ">=1.20" },
+    { name = "tzdata", specifier = ">=2026.3" },
 ]
 provides-extras = ["dev"]
 

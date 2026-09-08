@@ -6,11 +6,12 @@ Run with:  uv run python scripts/send_digest_now.py
 from slack_sdk import WebClient
 
 from clickup_slack_agent.clickup.client import ClickUpClient
-from clickup_slack_agent.config import settings
+from clickup_slack_agent.config import get_settings
 from clickup_slack_agent.digest.service import collect_digest, send_digest
 
 
 def main() -> None:
+    settings = get_settings()
     clickup = ClickUpClient(
         settings.clickup_api_token,
         settings.clickup_team_id,

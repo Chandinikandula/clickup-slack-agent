@@ -11,12 +11,13 @@ from clickup_slack_agent.agent.loop import Agent
 from clickup_slack_agent.agent.providers import build_provider
 from clickup_slack_agent.agent.tools import ToolRegistry
 from clickup_slack_agent.clickup.client import ClickUpClient
-from clickup_slack_agent.config import settings
+from clickup_slack_agent.config import get_settings
 
 
 def main() -> None:
     logging.basicConfig(level=logging.WARNING)
 
+    settings = get_settings()
     question = " ".join(sys.argv[1:]) or "what is due today?"
 
     if not settings.agent_enabled:

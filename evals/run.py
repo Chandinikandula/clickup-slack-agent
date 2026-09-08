@@ -27,7 +27,7 @@ from clickup_slack_agent.agent.loop import Agent  # noqa: E402
 from clickup_slack_agent.agent.providers import build_provider  # noqa: E402
 from clickup_slack_agent.agent.tools import ToolRegistry  # noqa: E402
 from clickup_slack_agent.clickup.client import ClickUpClient  # noqa: E402
-from clickup_slack_agent.config import settings  # noqa: E402
+from clickup_slack_agent.config import get_settings  # noqa: E402
 
 RESULTS_DIR = Path(__file__).parent / "results"
 
@@ -109,6 +109,7 @@ def score(case: Case, result, today: date) -> list[str]:
 
 
 def build_agent(provider_name: str, model: str) -> Agent:
+    settings = get_settings()
     api_key = {
         "gemini": settings.gemini_api_key,
         "anthropic": settings.anthropic_api_key,
@@ -128,6 +129,7 @@ def build_agent(provider_name: str, model: str) -> Agent:
 
 
 def main() -> None:
+    settings = get_settings()
     parser = argparse.ArgumentParser()
     parser.add_argument("--provider", default=settings.llm_provider)
     parser.add_argument("--model", default=settings.llm_model)

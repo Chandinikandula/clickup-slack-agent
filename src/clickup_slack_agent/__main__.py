@@ -10,7 +10,7 @@ from .agent.loop import Agent
 from .agent.providers import build_provider
 from .agent.tools import ToolRegistry
 from .clickup.client import ClickUpClient
-from .config import settings
+from .config import get_settings
 from .digest.scheduler import start_scheduler
 from .slack.app import build_app, start_socket_mode
 
@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 
 def main() -> None:
+    settings = get_settings()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",

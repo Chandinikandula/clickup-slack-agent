@@ -1,5 +1,6 @@
 """Typed configuration, loaded from the environment or a local .env file."""
 
+from functools import lru_cache
 from typing import Annotated, Literal
 
 from pydantic import field_validator
@@ -67,4 +68,12 @@ class Settings(BaseSettings):
         return v
 
 
-settings = Settings()  # raises at import time if a required key is missing
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Load and cache settings, raising if a required key is missing.
+
+    Deliberately a function rather than a module-level instance: importing a
+    module should not require a populated environment, or CI has to carry
+    real credentials just to import the code it is testing.
+    """
+    return Settings()
