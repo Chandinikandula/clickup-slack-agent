@@ -80,7 +80,8 @@ def main() -> None:
     print(f"\nTasks assigned to you: {len(tasks)}")
     for t in tasks[:15]:
         prio = (t.get("priority") or {}).get("priority", "none")
-        print(f"  [{t['status']['status']:<12}] {t['name'][:45]:<45} due {ms_to_date(t.get('due_date'))}  prio {prio}")
+        due = ms_to_date(t.get("due_date"))
+        print(f"  [{t['status']['status']:<12}] {t['name'][:45]:<45} due {due}  prio {prio}")
 
     print("\nClickUp connection OK.\n")
 
