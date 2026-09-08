@@ -1,6 +1,6 @@
 """Typed configuration, loaded from the environment or a local .env file."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -29,9 +29,30 @@ class Settings(BaseSettings):
     # list. Useful if this is ever pointed at a workspace with dozens of lists.
     clickup_include_list_ids: IdSet = frozenset()
 
-    # LLM — only needed for the chat agent, not the digest
+    # LLM — only needed for the chat agent, not the digest.
+    # The loop is provider-neutral; this picks which one it talks to.
+    llm_provider: Literal["gemini", "anthropic", "groq"] = "gemini"
+    llm_model: str = "gemini-3.5-flash"
+    gemini_api_key: str = ""
     anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-5"
+    groq_api_key: str = ""
+
+    @property
+    def llm_api_key(self) -> str:
+        return {
+            "gemini": self.gemini_api_key,
+            "anthropic": self.anthropic_api_key,
+            "groq": self.groq_api_key,
+        }[self.llm_provider]
+
+    @property
+    def agent_enabled(self) -> bool:
+        """False until a key for the selected provider is present.
+
+        The digest works without any LLM, so a missing key degrades the chat
+        layer rather than stopping the app from starting.
+        """
+        return bool(self.llm_api_key)
 
     # Behaviour
     timezone: str = "Asia/Kolkata"
