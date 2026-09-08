@@ -1,8 +1,8 @@
 """Provider selection.
 
-Imports are lazy so the app runs with only the SDK for the provider actually
-in use — and so a missing optional dependency fails with a clear message
-rather than at import time.
+Imports are lazy so the app only loads the SDK for the provider actually in
+use. Only Gemini ships today; the other names are accepted so that adding
+one is a new module plus a branch, and nothing else.
 """
 
 from ..llm import LLMProvider
@@ -17,14 +17,13 @@ def build_provider(name: str, api_key: str, model: str) -> LLMProvider:
 
         return GeminiProvider(api_key, model)
 
-    if name == "anthropic":
-        from .anthropic import AnthropicProvider
-
-        return AnthropicProvider(api_key, model)
-
-    if name == "groq":
-        from .groq import GroqProvider
-
-        return GroqProvider(api_key, model)
+    if name in {"anthropic", "groq"}:
+        # Accepted by config but not written yet — say so plainly rather
+        # than surfacing a ModuleNotFoundError from an import three frames up.
+        raise NotImplementedError(
+            f"the {name} provider is not implemented yet. Write "
+            f"agent/providers/{name}.py with a `complete` method matching "
+            "LLMProvider, then add a branch here. See CODE_GUIDE.md."
+        )
 
     raise ValueError(f"unknown provider: {name}")

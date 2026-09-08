@@ -197,28 +197,33 @@ network.
 
 ---
 
-## Deployment
+## Where it runs
 
-The two layers have genuinely different hosting needs, and splitting them
+The two layers have genuinely different hosting needs, and separating them
 turned out to be the cheaper answer rather than a compromise.
 
-**The digest is a ten-second job**, so it needs a scheduler, not a server.
-It runs as a GitHub Actions cron (`.github/workflows/digest.yml`) at 04:00
-UTC on weekdays — 09:30 in Kolkata. Free, no host to keep alive, and it
-fires whether or not a laptop is awake. The script exits non-zero on
-failure, so a broken digest shows as a red run rather than as silence.
+**The digest is a ten-second job**, so it wants a scheduler, not a server. It
+runs as a GitHub Actions cron (`.github/workflows/digest.yml`) at 04:00 UTC
+on weekdays — 09:30 in Kolkata. Free, nothing to keep alive, and it fires
+whether or not a laptop is awake. The script exits non-zero on failure, so a
+broken digest shows as a red run rather than as silence.
 
-**The chat agent must be listening when you type**, which genuinely does
-need a long-running process. `Dockerfile` and `fly.toml` are set up for it —
-one container, no inbound port, since Socket Mode dials out. Run it locally
-with `python -m clickup_slack_agent`, or `fly deploy` it.
+That split is why `SLACK_APP_TOKEN` is optional and why the digest path
+never touches the model. Requiring either would have forced a server for
+what is fundamentally a cron job.
 
-This split is why `SLACK_APP_TOKEN` is optional and `send_digest` never
-touches the model: the scheduled run needs neither Socket Mode nor an LLM,
-and requiring them would have forced a server for a cron job.
+**The chat agent must be listening when you type**, which genuinely does need
+a long-running process. There is no free way around that, so it runs locally
+with `python -m clickup_slack_agent` and is started when it is wanted.
 
-CI lints, tests without credentials, builds the image, and deploys to Fly on
-merge to `main` once `FLY_API_TOKEN` is set.
+There is no container or hosting config in the repository. One was written
+and then removed: an always-on host is a paid service, the digest did not
+need one, and a `Dockerfile` nothing builds from is a file that rots. The app
+is a plain Python process with a lockfile, so containerising it later is
+mechanical — see *What would change at team scale* below for when that
+becomes worth doing.
+
+CI lints, format-checks and runs the tests with no credentials present.
 
 ---
 
@@ -235,6 +240,11 @@ second one:
   be resumable when it fails halfway.
 - **Rate limits** — ClickUp's 100/min is per token, so it stops being
   theoretical once there are twenty briefs to build at 09:30.
+- **Hosting** — the chat layer would need to be always-on rather than
+  started on demand, which is where a container and a host come back.
+  Worth noting the app is a singleton today: the scheduler and the
+  conversation memory are both in-process, so two instances would send two
+  digests and answer every message twice.
 
 The agent loop, the tool registry and the write gate would carry over
 unchanged. That is the part worth having built carefully.

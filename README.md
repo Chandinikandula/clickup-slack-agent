@@ -45,7 +45,7 @@ and only your click runs the change.
 ## Stack
 
 Python 3.11 · slack-bolt (Socket Mode) · httpx · APScheduler ·
-pydantic-settings · pytest + respx · ruff · Fly.io
+pydantic-settings · pytest + respx · ruff · GitHub Actions
 
 The model sits behind one interface, selected by `LLM_PROVIDER` — Gemini
 today, with Anthropic and Groq as drop-in alternatives.
@@ -110,14 +110,5 @@ Neither `SLACK_APP_TOKEN` nor a model key is needed — a one-shot digest uses
 no Socket Mode and no LLM. Trigger it by hand from the Actions tab to test.
 
 **The chat agent** has to be listening when you type, so it needs a
-long-running process. Locally that's `python -m clickup_slack_agent`. To host
-it:
-
-```bash
-fly launch --no-deploy --copy-config
-grep -E '^[A-Z_]+=.+' .env | fly secrets import
-fly deploy && fly scale count 1
-```
-
-`fly scale count 1` matters: two machines means two Socket Mode connections,
-so every DM gets answered twice.
+long-running process — `uv run python -m clickup_slack_agent`, started when
+you want it. There is no free way around that, so it isn't hosted.

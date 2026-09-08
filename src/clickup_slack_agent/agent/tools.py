@@ -44,9 +44,6 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return [t.spec for t in self._tools.values()]
 
-    def get(self, name: str) -> Tool | None:
-        return self._tools.get(name)
-
     def is_write(self, name: str) -> bool:
         tool = self._tools.get(name)
         return bool(tool and tool.is_write)

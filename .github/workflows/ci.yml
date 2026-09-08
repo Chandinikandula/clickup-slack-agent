@@ -32,23 +32,3 @@ jobs:
       # and importing the app must not require a populated environment.
       - name: Test
         run: uv run pytest -q
-
-      - name: Docker build
-        run: docker build -t clickup-slack-agent:ci .
-
-  deploy:
-    needs: check
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-
-      # Skips rather than fails when the token is absent, so the repo is
-      # green before anything has been deployed.
-      - name: Deploy
-        if: env.FLY_API_TOKEN != ''
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: flyctl deploy --remote-only
