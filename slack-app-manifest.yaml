@@ -1,0 +1,40 @@
+# Slack app configuration, kept in version control.
+# Create the app at https://api.slack.com/apps -> Create New App -> From a manifest
+# and paste this in. Editing the app in the UI later? Update this file too.
+
+display_information:
+  name: ClickUp Agent
+  description: Daily ClickUp digest and a conversational task assistant
+  background_color: "#2b2d31"
+
+features:
+  bot_user:
+    display_name: ClickUp Agent
+    always_online: true
+  app_home:
+    home_tab_enabled: false
+    # Required, or you cannot DM the bot at all
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read # required by the app_mention event
+      - chat:write # post the digest and replies
+      - im:history # read your DMs to the bot
+      - im:read # resolve DM channels
+      - im:write # open a DM channel to send the digest
+      - users:read # map Slack user -> display name
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.im # you DM the bot
+      - app_mention # you @mention it in a channel
+  interactivity:
+    # Needed for the confirm/cancel buttons on write actions
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
