@@ -28,30 +28,76 @@ src/clickup_slack_agent/
 
 ---
 
-## Two flows, traced
+## Execution flow
 
-### The digest — no model involved
+Four traces: startup, the digest, a question, and a write. The last two are
+the ones worth understanding.
 
-`scheduler.py` registers one cron job at startup:
+### 1. Startup
 
-```python
-scheduler.add_job(
-    send_digest,
-    trigger=CronTrigger(hour=9, minute=30, timezone=tz),
-    misfire_grace_time=3600,   # fire late rather than skip
-    coalesce=True,             # downtime sends one digest, not five
-    max_instances=1,
-)
+`uv run python -m clickup_slack_agent` → `__main__.main()`
+
+```
+main()
+├── get_settings()                         config.py
+│     Settings()                           reads .env, raises on a missing key
+│
+├── ClickUpClient(token, team_id, ...)     one httpx.Client, reused throughout
+│
+├── if settings.agent_enabled:             false when no key for the provider
+│   ├── ToolRegistry(clickup, user_id, tz)
+│   │     _build()                         seven Tool objects, schemas carry today's date
+│   ├── build_provider("gemini", key, model)
+│   │     GeminiProvider(...)              lazy import — only this SDK loads
+│   └── Agent(provider, registry, tz)
+│                                          agent stays None if no key
+│
+├── build_app(clickup, settings, agent)    slack/app.py
+│     App(token=...)                       registers 4 handlers:
+│                                            message, app_mention,
+│                                            confirm_write, cancel_write
+│
+├── start_scheduler(clickup, app.client, settings)
+│     BackgroundScheduler(timezone=tz)     separate thread
+│     add_job(send_digest, CronTrigger(9, 30))
+│     scheduler.start()                    returns immediately
+│
+└── start_socket_mode(app, settings)
+      SocketModeHandler(app, xapp_token)
+      handler.start()                      opens a WebSocket, BLOCKS here forever
 ```
 
-At 09:30 `service.send_digest` runs:
+Two threads from then on: the scheduler waiting for 09:30, and the Socket
+Mode connection waiting for events. A missing model key costs you the chat
+layer only — the digest path never touches `agent`.
 
-1. `clickup.get_tasks(assignee_ids=[you])` — every open task assigned to you
-2. `build_digest(tasks, tz=..., now=...)` — buckets them
-3. `digest_blocks(digest)` — renders Slack blocks
-4. `slack.chat_postMessage(...)`
+### 2. The digest — no model involved
 
-The whole thing is wrapped so a failure still reaches you:
+09:30 IST arrives. APScheduler's thread fires:
+
+```
+CronTrigger fires
+└── send_digest(clickup, slack, settings)              digest/service.py
+    ├── collect_digest(clickup, settings)
+    │   ├── datetime.now(ZoneInfo("Asia/Kolkata"))     "now" in YOUR timezone
+    │   ├── clickup.get_tasks(assignee_ids=[240049726])
+    │   │   └── _request("GET", "/team/{id}/task")     paged; 429 → sleep + retry
+    │   │       └── _keep(list_id)                     drops excluded lists
+    │   │       └── Task.from_api(raw)                 epoch ms → aware datetime
+    │   └── build_digest(tasks, tz, now)               digest/builder.py — pure
+    │       └── for each task:
+    │             status.is_terminal?      → skip
+    │             due_date is None?        → in_progress if actively worked
+    │             _local_date(due, tz)     → overdue / due_today / upcoming
+    │
+    ├── digest_blocks(digest)                          slack/blocks.py
+    │     _section("⚠️ Overdue", ..., show_late=True)
+    │     _task_line(task)                             priority icon + <url|name>
+    │
+    └── slack.chat_postMessage(channel=SLACK_USER_ID, blocks=..., text=...)
+```
+
+The `try/except` wraps steps 1–2, not the post:
 
 ```python
 try:
@@ -63,31 +109,164 @@ except Exception as exc:
 slack.chat_postMessage(channel=target, blocks=blocks, text=text)
 ```
 
-A silent failure would read as a clear day, which is the worst outcome here.
+The message goes out either way. A silent failure would read as a clear day,
+which is the worst possible outcome for a tool you're meant to trust.
 
-### A question — the agent
+### 3. A question — the agent loop
 
-You DM the bot. `slack/app.py` receives a `message` event:
+You DM: **"what's the latest on the eval harness task?"**
 
-```python
-@app.event("message")
-def handle_dm(body, event, client):
-    if event.get("subtype") or event.get("bot_id"):
-        return                                  # ignore edits, joins, itself
-    if already_handled(body.get("event_id")):
-        return                                  # Slack redelivers; don't answer twice
-    _respond(event.get("text", ""), event["channel"], client)
+```
+Slack WebSocket delivers a `message` event
+└── handle_dm(body, event, client)                     slack/app.py
+    ├── event.get("subtype") or bot_id?    → return    ignore edits, joins, itself
+    ├── already_handled(event_id)?         → return    Slack redelivers after 3s
+    └── _respond(text, channel, client)
+        ├── text in DIGEST_WORDS?          → send_digest, done  (the bot path)
+        ├── text in {"reset", ...}?        → clear history, done
+        ├── chat_postMessage("_thinking…_")            placeholder, keeps ts
+        └── agent.run(question, conversations.get(channel))
 ```
 
-`_respond` posts a placeholder immediately, then runs the agent and edits
-that message in place — Slack shows something within a second instead of a
-silent gap while the model thinks.
+Inside `Agent.run` — this is the part that matters:
+
+```
+build_system_prompt(today, tz)             injects today's real date
+
+── iteration 0 ────────────────────────────────────────────────────────────
+messages = [ user("what's the latest on the eval harness task?") ]
+
+provider.complete(system, messages, tools)
+└── GeminiProvider.complete
+    ├── _to_content(m) for each message    Message → types.Content
+    ├── _generate_with_retry(...)          429/503 → honour retryDelay, retry
+    └── _from_response(response)
+          part.function_call               → ToolCall(name="search_tasks", ...)
+          part.thought_signature           → stashed in ToolCall.meta
+
+response.wants_tools == True
+registry.is_write("search_tasks") == False → no gate
+registry.execute("search_tasks", {"query": "eval harness"})
+└── _search_tasks(query="eval harness")
+    └── clickup.get_tasks(...)  → filter by name → JSON string
+
+messages now:
+  [ user(question),
+    assistant(tool_calls=[search_tasks]),
+    user(tool_results=[{...1 match, id 14yqfu3a15f...}]) ]
+
+── iteration 1 ────────────────────────────────────────────────────────────
+provider.complete(...)                     model SEES the search result
+                                           and decides it wants the comments
+→ ToolCall(name="get_task_comments", arguments={"task_id": "14yqfu3a15f"})
+
+registry.execute → clickup.get_comments(...) → {"count": 0, "comments": []}
+
+messages grows by two more entries.
+
+── iteration 2 ────────────────────────────────────────────────────────────
+provider.complete(...)                     comments were empty, so it asks
+→ ToolCall(name="get_task_details", ...)      for details instead
+
+── iteration 3 ────────────────────────────────────────────────────────────
+provider.complete(...)
+→ response.wants_tools == False             it has enough
+
+return AgentResult(
+    text="No comments yet. It's Open, High priority, due Friday…",
+    steps=[Step(search_tasks…), Step(get_task_comments…), Step(get_task_details…)],
+    messages=[…],          ← saved as history for the next question
+    pending_write=None,
+    usage=Usage(4133, 161),
+)
+```
+
+**Nothing in the code sequenced those three calls.** The loop only asks "do
+you want a tool?" and feeds back whatever comes out. The model picked
+`get_task_comments` after seeing the search result, then `get_task_details`
+after finding the comments empty. That emergent chaining is the line between
+this and a lookup function.
+
+Back in Slack:
+
+```
+conversations.set(channel, result.messages)          last 8 turns kept
+client.chat_update(channel, ts=placeholder_ts,
+                   blocks=agent_blocks(text, tools_used))
+```
+
+The placeholder becomes the answer, with the tool trail underneath.
+
+### 4. A write — proposal, then confirmation
+
+You DM: **"move the ARCHITECTURE task to in review"**
+
+**Part one — the proposal.** Same loop, until a write appears:
+
+```
+── iteration 0 ──  ToolCall(search_tasks, {"query": "ARCHITECTURE"})
+                   is_write? No  → execute, feed back
+
+── iteration 1 ──  ToolCall(list_statuses, {})
+                   is_write? No  → execute, feed back
+                                   (the model checks "in review" exists)
+
+── iteration 2 ──  ToolCall(update_task_status,
+                            {"task_id": "14yqfu3a16g", "status": "in review"})
+
+                   for call in response.tool_calls:
+                       if self.registry.is_write(call.name):
+                           return AgentResult(pending_write=call, ...)
+                                   ↑
+                                   returns BEFORE registry.execute
+                                   ClickUp is never called
+```
+
+Slack renders buttons, carrying the action in the payload itself:
 
 ```python
-placeholder = client.chat_postMessage(channel=channel, text="_thinking…_")
-result = agent.run(question, conversations.get(channel))
-client.chat_update(channel=channel, ts=placeholder["ts"], ...)
+confirm_write_blocks(
+    summary=_describe(call, result.text),
+    payload=json.dumps({"name": call.name, "arguments": call.arguments}),
+)
 ```
+
+**Part one ends here.** The HTTP request is over. No state is stored
+anywhere — not in memory, not on disk.
+
+**Part two — minutes later, you click "Do it".** A completely separate
+request arrives:
+
+```
+Slack delivers a block_actions payload
+└── on_confirm(ack, body, client)                     slack/app.py
+    ├── ack()                                         within 3s, always
+    ├── payload = json.loads(body["actions"][0]["value"])
+    │     {"name": "update_task_status", "arguments": {...}}
+    │     ↑ the action came back from the button, not from memory
+    ├── ToolCall(id="confirmed", name=..., arguments=...)
+    └── agent.execute_confirmed_write(call)
+        ├── if not registry.is_write(name): return error
+        │     ↑ this path may run writes and nothing else
+        └── registry.execute("update_task_status", {...})
+            └── clickup.update_status(task_id, status)
+                └── PUT /task/{id}  {"status": "in review"}   ← the board changes
+
+    client.chat_update(...)        buttons REPLACED by the outcome,
+                                   so it cannot be clicked twice
+```
+
+Three properties fall out of this shape:
+
+- **A restart between the two parts is harmless.** The pending action lives
+  in Slack's message, not in the app.
+- **The model cannot write.** `run()` returns before `execute`; only a human
+  click reaches `execute_confirmed_write`.
+- **The confirm path is not a back door.** Its `is_write` guard stops it
+  being a second, ungated way to run arbitrary tools.
+
+Clicking **Cancel** replaces the buttons and does nothing else — there is no
+state to clean up.
 
 ---
 
