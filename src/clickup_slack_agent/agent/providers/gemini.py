@@ -22,6 +22,24 @@ log = logging.getLogger(__name__)
 # waiting out — the alternative is the agent dying mid-question.
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 4
+# Gemini's 429 says how long to wait. Honour it, but not indefinitely — a
+# person waiting in Slack would rather hear about the problem than sit
+# through a minute of silence.
+MAX_HONOURED_DELAY_S = 30.0
+
+
+def _suggested_delay(exc: genai_errors.APIError) -> float | None:
+    """The retryDelay Gemini attaches to a quota error, in seconds."""
+    details = getattr(exc, "details", None) or {}
+    entries = details.get("error", {}).get("details", []) if isinstance(details, dict) else []
+    for entry in entries:
+        if entry.get("@type", "").endswith("RetryInfo"):
+            raw = str(entry.get("retryDelay", "")).rstrip("s")
+            try:
+                return float(raw)
+            except ValueError:
+                return None
+    return None
 
 
 class GeminiProvider:
@@ -73,8 +91,14 @@ class GeminiProvider:
                 last = attempt == MAX_ATTEMPTS - 1
                 if exc.code not in RETRY_STATUSES or last:
                     raise
-                # Jitter, so a retry storm does not sync up across requests.
-                delay = 2**attempt + random.uniform(0, 1)
+                # Prefer the server's own hint; fall back to backoff with
+                # jitter, so retries do not sync up across requests.
+                hinted = _suggested_delay(exc)
+                delay = (
+                    min(hinted + 0.5, MAX_HONOURED_DELAY_S)
+                    if hinted is not None
+                    else 2**attempt + random.uniform(0, 1)
+                )
                 log.warning("gemini %s, retrying in %.1fs", exc.code, delay)
                 time.sleep(delay)
 

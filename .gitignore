@@ -25,3 +25,6 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# results are run artefacts, not source
+evals/results/
