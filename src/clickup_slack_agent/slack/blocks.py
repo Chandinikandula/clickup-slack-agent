@@ -110,6 +110,44 @@ def digest_text(digest: Digest) -> str:
     return "Your day: " + ", ".join(parts)
 
 
+def confirm_write_blocks(summary: str, payload: str) -> list[dict]:
+    """Ask before touching the board.
+
+    The pending action rides in the button's own value, so approving it
+    minutes later works without the app having remembered anything.
+    """
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": "confirm_write",
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Do it"},
+                    "value": payload,
+                },
+                {
+                    "type": "button",
+                    "action_id": "cancel_write",
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                    "value": "cancel",
+                },
+            ],
+        },
+    ]
+
+
+def agent_blocks(text: str, tools_used: list[str]) -> list[dict]:
+    """An agent answer, with a quiet note of how it got there."""
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}]
+    if tools_used:
+        trail = " → ".join(tools_used)
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"_{trail}_"}]})
+    return blocks
+
+
 def error_blocks(message: str) -> list[dict]:
     """Say so when the digest could not be built.
 

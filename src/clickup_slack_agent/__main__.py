@@ -4,11 +4,17 @@ uv run python -m clickup_slack_agent
 """
 
 import logging
+from zoneinfo import ZoneInfo
 
+from .agent.loop import Agent
+from .agent.providers import build_provider
+from .agent.tools import ToolRegistry
 from .clickup.client import ClickUpClient
 from .config import settings
 from .digest.scheduler import start_scheduler
 from .slack.app import build_app, start_socket_mode
+
+log = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -26,8 +32,22 @@ def main() -> None:
         exclude_list_ids=settings.clickup_exclude_list_ids,
         include_list_ids=settings.clickup_include_list_ids,
     )
-    app = build_app(clickup, settings)
 
+    # The digest needs no model, so a missing key costs you the chat layer
+    # rather than the whole app.
+    agent = None
+    if settings.agent_enabled:
+        registry = ToolRegistry(clickup, settings.clickup_user_id, ZoneInfo(settings.timezone))
+        agent = Agent(
+            build_provider(settings.llm_provider, settings.llm_api_key, settings.llm_model),
+            registry,
+            timezone=settings.timezone,
+        )
+        log.info("agent ready: %s / %s", settings.llm_provider, settings.llm_model)
+    else:
+        log.warning("no API key for %s — digest only, no chat", settings.llm_provider)
+
+    app = build_app(clickup, settings, agent)
     start_scheduler(clickup, app.client, settings)
     start_socket_mode(app, settings)  # blocks until interrupted
 
