@@ -22,7 +22,10 @@ Nothing in the code knows that "the latest on X" means *read the comments*.
 The model chose the second call after seeing the first result — that is the
 line between a bot and an agent.
 
-Design decisions and their reasoning are in [ARCHITECTURE.md](ARCHITECTURE.md).
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the design decisions and why they
+  were made that way.
+- **[CODE_GUIDE.md](CODE_GUIDE.md)** — a walk through the code, module by
+  module, and how to add a tool or a model provider.
 
 ## What it can do
 
